@@ -40,6 +40,11 @@ class AlterBackend:
         self._ws: Optional[WebSocket] = None
         self._transcription_task: Optional[asyncio.Task] = None
 
+        # 起動時にモデルを事前読み込み
+        print("[INFO] モデルを事前読み込み中...")
+        self.transcription_engine.load_model()
+        print("[INFO] モデル事前読み込み完了")
+
     async def send_message(self, msg: dict):
         """フロントエンドにメッセージを送信"""
         if self._ws:

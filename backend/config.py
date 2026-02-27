@@ -18,7 +18,7 @@ class AppConfig:
     # --- 文字起こし ---
     whisper_model: str = "large-v3"
     whisper_device: str = "cuda"
-    whisper_compute_type: str = "float16"
+    whisper_compute_type: str = ""  # auto: cuda→float16, cpu→int8
     language: str = "ja"
     vad_threshold: float = 0.5
 
@@ -47,6 +47,10 @@ class AppConfig:
         self.gemini_api_key = self.gemini_api_key or os.environ.get("GEMINI_API_KEY", "")
         self.openai_api_key = self.openai_api_key or os.environ.get("OPENAI_API_KEY", "")
         self.anthropic_api_key = self.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+
+        # compute_type を自動設定
+        if not self.whisper_compute_type:
+            self.whisper_compute_type = "float16" if self.whisper_device == "cuda" else "int8"
 
         # dataディレクトリを作成
         self.data_dir.mkdir(parents=True, exist_ok=True)
