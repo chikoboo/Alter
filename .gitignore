@@ -1,0 +1,56 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# ===== Node.js / Frontend =====
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ===== IDE / Editor =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ===== Environment / Secrets =====
+.env
+.env.local
+.env.*.local
+
+# ===== Runtime Data =====
+data/
+*.log
+logs/
+
+# ===== Whisper / ML Models =====
+models/
+*.pt
+*.bin
+*.onnx
+
+# ===== Misc =====
+*.bak
+*.tmp
+.cache/
