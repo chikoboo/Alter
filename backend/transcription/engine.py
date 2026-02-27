@@ -47,6 +47,42 @@ class TranscriptionEngine:
         self._running = False
         self._lock = threading.Lock()
 
+        # CUDA利用可能チェック（警告のみ）
+        if self.device == "cuda":
+            self._check_cuda_available()
+
+    @staticmethod
+    def _check_cuda_available() -> bool:
+        """CUDAが実際に利用可能かチェック"""
+        # 1. ctranslate2でCUDAデバイスを確認
+        try:
+            import ctranslate2
+            if hasattr(ctranslate2, 'get_cuda_device_count'):
+                count = ctranslate2.get_cuda_device_count()
+                if count == 0:
+                    print("[INFO] CUDAデバイスが見つかりません")
+                    return False
+                print(f"[INFO] CUDAデバイス検出: {count}台")
+            else:
+                # get_cuda_device_countがない古いバージョン
+                pass
+        except Exception as e:
+            print(f"[INFO] ctranslate2 CUDAチェック失敗: {e}")
+            return False
+
+        # 2. cuBLAS DLLの存在確認（Windows）
+        import sys
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.CDLL("cublas64_12.dll")
+                print("[INFO] cublas64_12.dll 検出済み")
+            except OSError:
+                print("[INFO] cublas64_12.dll が見つかりません")
+                return False
+
+        return True
+
     def load_model(self):
         """Whisperモデルを読み込む（初回のみ）"""
         if self._model is not None:

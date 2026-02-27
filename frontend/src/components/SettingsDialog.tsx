@@ -98,7 +98,7 @@ export function SettingsDialog({
                                 <option
                                     key={p}
                                     value={p}
-                                    disabled={!availableProviders.includes(p)}
+                                    disabled={availableProviders.length > 0 && !availableProviders.includes(p)}
                                 >
                                     {providerLabels[p] || p}
                                     {!availableProviders.includes(p) ? ' (APIキー未設定)' : ''}
