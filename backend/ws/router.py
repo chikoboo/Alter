@@ -100,18 +100,26 @@ class AlterBackend:
                 await self.send_message({"type": "error", "message": "デバイスが選択されていません"})
                 return
 
-            # セッションがなければ新規作成
-            if self.session_manager.current_session is None:
-                self.session_manager.create_session()
+            try:
+                # セッションがなければ新規作成
+                if self.session_manager.current_session is None:
+                    self.session_manager.create_session()
 
-            self.audio_capture.start()
-            self._transcription_task = asyncio.create_task(self._transcription_loop())
+                print("[DEBUG] 音声キャプチャ開始中...")
+                self.audio_capture.start()
+                print("[DEBUG] 音声キャプチャ開始成功")
+                self._transcription_task = asyncio.create_task(self._transcription_loop())
 
-            await self.send_message({
-                "type": "status",
-                "recording": True,
-                "session": self._session_info(),
-            })
+                await self.send_message({
+                    "type": "status",
+                    "recording": True,
+                    "session": self._session_info(),
+                })
+            except Exception as e:
+                print(f"[ERROR] 録音開始エラー: {e}")
+                import traceback
+                traceback.print_exc()
+                await self.send_message({"type": "error", "message": f"録音開始に失敗: {e}"})
 
         elif action == "stop":
             if self.audio_capture:
