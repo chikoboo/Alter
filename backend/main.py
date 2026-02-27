@@ -4,6 +4,13 @@ FastAPIサーバーを起動し、pywebviewでネイティブウィンドウを�
 開発時は通常のブラウザでも接続可能。
 """
 
+# .envファイルから環境変数を読み込む
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenvがなければスキップ
+
 import sys
 import threading
 import argparse
