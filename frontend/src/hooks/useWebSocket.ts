@@ -25,9 +25,11 @@ export function useWebSocket({ onMessage, autoConnect = true }: UseWebSocketOpti
     const connect = useCallback(() => {
         if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-        // 開発時はViteプロキシ、本番時は同一オリジン
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws`;
+        // 開発時はバックエンドに直接接続、本番時は同一オリジン
+        const isDev = import.meta.env.DEV;
+        const wsUrl = isDev
+            ? 'ws://127.0.0.1:8765/ws'
+            : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
 
         const ws = new WebSocket(wsUrl);
 
