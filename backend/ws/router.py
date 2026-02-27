@@ -285,22 +285,33 @@ async def websocket_endpoint(ws: WebSocket):
     """メインWebSocketエンドポイント"""
     global _backend
     if _backend is None:
+        print("[ERROR] _backend が初期化されていません")
         await ws.close()
         return
 
     await ws.accept()
     _backend._ws = ws
+    print("[DEBUG] WebSocket接続完了、ステータス送信中...")
 
     # 接続時に初期ステータスを送信
-    await _backend._send_status()
+    try:
+        await _backend._send_status()
+        print("[DEBUG] ステータス送信成功")
+    except Exception as e:
+        print(f"[ERROR] ステータス送信失敗: {e}")
+        import traceback
+        traceback.print_exc()
 
     try:
         while True:
             data = await ws.receive_json()
+            print(f"[DEBUG] 受信: {data.get('type', 'unknown')}")
             await _backend.handle_message(data)
     except WebSocketDisconnect:
         print("[INFO] WebSocket切断")
     except Exception as e:
         print(f"[ERROR] WebSocketエラー: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         _backend._ws = None
