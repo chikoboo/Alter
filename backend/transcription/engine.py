@@ -11,8 +11,8 @@ from typing import Callable, Optional
 
 import numpy as np
 
-from backend.audio.capture import AudioChunk
-from backend.transcription.vad import VoiceActivityDetector
+from audio.capture import AudioChunk
+from transcription.vad import VoiceActivityDetector
 
 
 @dataclass

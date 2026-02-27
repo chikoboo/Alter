@@ -1,6 +1,6 @@
 """Alter - Claude LLMプロバイダー"""
 
-from backend.ai.provider_base import LLMProvider
+from ai.provider_base import LLMProvider
 
 
 class ClaudeProvider(LLMProvider):

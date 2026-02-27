@@ -6,7 +6,7 @@ LLMに送るプロンプトを構築する。
 
 from dataclasses import dataclass
 
-from backend.ai.learning import LearningStore
+from ai.learning import LearningStore
 
 
 @dataclass

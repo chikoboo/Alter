@@ -10,13 +10,13 @@ from typing import Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from backend.config import AppConfig
-from backend.audio.devices import list_audio_devices, AudioDevice
-from backend.audio.capture import AudioCapture
-from backend.transcription.engine import TranscriptionEngine, TranscriptSegment
-from backend.ai.thinking import ThinkingEngine
-from backend.ai.learning import UserUtterance
-from backend.session.manager import SessionManager
+from config import AppConfig
+from audio.devices import list_audio_devices, AudioDevice
+from audio.capture import AudioCapture
+from transcription.engine import TranscriptionEngine, TranscriptSegment
+from ai.thinking import ThinkingEngine
+from ai.learning import UserUtterance
+from session.manager import SessionManager
 
 router = APIRouter()
 

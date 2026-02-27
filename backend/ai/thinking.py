@@ -6,13 +6,13 @@
 
 from typing import Optional
 
-from backend.ai.provider_base import LLMProvider
-from backend.ai.gemini_provider import GeminiProvider
-from backend.ai.openai_provider import OpenAIProvider
-from backend.ai.claude_provider import ClaudeProvider
-from backend.ai.context import ContextBuilder
-from backend.ai.learning import LearningStore
-from backend.config import AppConfig
+from ai.provider_base import LLMProvider
+from ai.gemini_provider import GeminiProvider
+from ai.openai_provider import OpenAIProvider
+from ai.claude_provider import ClaudeProvider
+from ai.context import ContextBuilder
+from ai.learning import LearningStore
+from config import AppConfig
 
 
 class ThinkingEngine:
