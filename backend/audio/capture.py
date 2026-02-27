@@ -92,6 +92,7 @@ class AudioCapture:
 
     def _capture_mic_windows(self):
         """マイク入力スレッド（Windows）"""
+        print("[DEBUG] マイクキャプチャスレッド開始")
         try:
             import pyaudiowpatch as pyaudio  # type: ignore
         except ImportError:
@@ -100,11 +101,16 @@ class AudioCapture:
 
         p = pyaudio.PyAudio()
         try:
+            print(f"[DEBUG] マイクデバイス情報取得: index={self.mic_device_index}")
             dev_info = p.get_device_info_by_index(self.mic_device_index)
             native_rate = int(dev_info.get("defaultSampleRate", self.sample_rate))
             channels = min(dev_info.get("maxInputChannels", 1), 2)
             frames_per_buffer = int(native_rate * 0.1)  # 100ms バッファ
+            print(f"[DEBUG] マイク: rate={native_rate}, ch={channels}, buf={frames_per_buffer}")
 
+            print("[DEBUG] マイクストリーム開始...")
+            import sys
+            sys.stdout.flush()
             stream = p.open(
                 format=pyaudio.paFloat32,
                 channels=channels,
@@ -113,17 +119,21 @@ class AudioCapture:
                 input_device_index=self.mic_device_index,
                 frames_per_buffer=frames_per_buffer,
             )
+            print("[DEBUG] マイクストリーム開始成功")
 
             self._read_stream(stream, "you", native_rate, channels)
             stream.stop_stream()
             stream.close()
         except Exception as e:
             print(f"[ERROR] マイクキャプチャエラー: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             p.terminate()
 
     def _capture_speaker_windows(self):
         """スピーカー出力ループバックスレッド（Windows）"""
+        print("[DEBUG] スピーカーキャプチャスレッド開始")
         try:
             import pyaudiowpatch as pyaudio  # type: ignore
         except ImportError:
@@ -132,11 +142,16 @@ class AudioCapture:
 
         p = pyaudio.PyAudio()
         try:
+            print(f"[DEBUG] スピーカーデバイス情報取得: index={self.speaker_device_index}")
             dev_info = p.get_device_info_by_index(self.speaker_device_index)
             native_rate = int(dev_info.get("defaultSampleRate", self.sample_rate))
             channels = min(dev_info.get("maxInputChannels", 2), 2)
             frames_per_buffer = int(native_rate * 0.1)
+            print(f"[DEBUG] スピーカー: rate={native_rate}, ch={channels}, buf={frames_per_buffer}")
 
+            print("[DEBUG] スピーカーストリーム開始...")
+            import sys
+            sys.stdout.flush()
             stream = p.open(
                 format=pyaudio.paFloat32,
                 channels=channels,
@@ -145,12 +160,15 @@ class AudioCapture:
                 input_device_index=self.speaker_device_index,
                 frames_per_buffer=frames_per_buffer,
             )
+            print("[DEBUG] スピーカーストリーム開始成功")
 
             self._read_stream(stream, "target", native_rate, channels)
             stream.stop_stream()
             stream.close()
         except Exception as e:
             print(f"[ERROR] スピーカーキャプチャエラー: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             p.terminate()
 
