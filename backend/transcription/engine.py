@@ -52,7 +52,7 @@ class TranscriptionEngine:
         if self._model is not None:
             return
 
-        print(f"[INFO] faster-whisper モデル '{self.model_name}' を読み込み中...")
+        print(f"[INFO] faster-whisper モデル '{self.model_name}' を読み込み中... (device={self.device}, compute={self.compute_type})")
         try:
             from faster_whisper import WhisperModel
             self._model = WhisperModel(
@@ -65,16 +65,25 @@ class TranscriptionEngine:
             print(f"[ERROR] モデル読み込みに失敗: {e}")
             # CPUフォールバック
             if self.device == "cuda":
-                print("[INFO] CPUにフォールバックします...")
-                self.device = "cpu"
-                self.compute_type = "int8"
-                from faster_whisper import WhisperModel
-                self._model = WhisperModel(
-                    self.model_name,
-                    device="cpu",
-                    compute_type="int8",
-                )
-                print("[INFO] CPUモデル読み込み完了")
+                self._fallback_to_cpu()
+
+    def _fallback_to_cpu(self):
+        """CUDA失敗時にCPUモデルに切り替える"""
+        print("[INFO] CPUにフォールバックします...")
+        self.device = "cpu"
+        self.compute_type = "int8"
+        self._model = None
+        try:
+            from faster_whisper import WhisperModel
+            self._model = WhisperModel(
+                self.model_name,
+                device="cpu",
+                compute_type="int8",
+            )
+            print("[INFO] CPUモデル読み込み完了")
+        except Exception as e:
+            print(f"[ERROR] CPUフォールバックも失敗: {e}")
+            self._model = None
 
     def set_callback(self, callback: Callable[[TranscriptSegment], None]):
         """文字起こし結果のコールバックを設定する"""
@@ -134,5 +143,11 @@ class TranscriptionEngine:
                 return result
 
         except Exception as e:
-            print(f"[ERROR] 文字起こしエラー: {e}")
+            error_msg = str(e)
+            print(f"[ERROR] 文字起こしエラー: {error_msg}")
+
+            # CUDA/cuBLAS系エラーの場合、CPUにフォールバック
+            if "cublas" in error_msg.lower() or "cuda" in error_msg.lower():
+                self._fallback_to_cpu()
+
             return None

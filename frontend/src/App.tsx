@@ -3,7 +3,7 @@
  * 全コンポーネントの統合・状態管理
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWebSocket } from './hooks/useWebSocket';
 import { TitleBar } from './components/TitleBar';
 import { TranscriptView } from './components/TranscriptView';
@@ -17,6 +17,28 @@ import type {
     ServerMessage,
 } from './types/messages';
 
+// --- localStorage ヘルパー ---
+const STORAGE_KEYS = {
+    MIC: 'alter_selected_mic',
+    SPEAKER: 'alter_selected_speaker',
+    PROVIDER: 'alter_llm_provider',
+} as const;
+
+function loadSetting<T>(key: string, fallback: T): T {
+    try {
+        const v = localStorage.getItem(key);
+        return v !== null ? JSON.parse(v) : fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function saveSetting(key: string, value: unknown) {
+    try {
+        localStorage.setItem(key, JSON.stringify(value));
+    } catch { /* ignore */ }
+}
+
 export function App() {
     // --- 状態 ---
     const [transcripts, setTranscripts] = useState<TranscriptEntry[]>([]);
@@ -24,15 +46,15 @@ export function App() {
 
     // AI
     const [aiAnswer, setAiAnswer] = useState<string | null>(null);
-    const [aiProvider, setAiProvider] = useState('gemini');
+    const [aiProvider, setAiProvider] = useState(() => loadSetting(STORAGE_KEYS.PROVIDER, 'gemini'));
     const [aiLoading, setAiLoading] = useState(false);
     const [selectedText, setSelectedText] = useState('');
 
     // デバイス
     const [microphones, setMicrophones] = useState<Device[]>([]);
     const [speakers, setSpeakers] = useState<Device[]>([]);
-    const [selectedMic, setSelectedMic] = useState<number | null>(null);
-    const [selectedSpeaker, setSelectedSpeaker] = useState<number | null>(null);
+    const [selectedMic, setSelectedMic] = useState<number | null>(() => loadSetting(STORAGE_KEYS.MIC, null));
+    const [selectedSpeaker, setSelectedSpeaker] = useState<number | null>(() => loadSetting(STORAGE_KEYS.SPEAKER, null));
 
     // セッション
     const [sessionName, setSessionName] = useState('');
@@ -45,6 +67,9 @@ export function App() {
     // UI
     const [showSettings, setShowSettings] = useState(false);
     const [showSessions, setShowSessions] = useState(false);
+
+    // 初回接続で保存済み設定を自動適用するフラグ
+    const hasRestoredRef = useRef(false);
 
     // --- WebSocket メッセージ処理 ---
     const handleMessage = useCallback((msg: ServerMessage) => {
@@ -110,6 +135,28 @@ export function App() {
 
     const { send, connected } = useWebSocket({ onMessage: handleMessage });
 
+    // --- 接続時に保存済み設定を自動復元 ---
+    useEffect(() => {
+        if (!connected || hasRestoredRef.current) return;
+        hasRestoredRef.current = true;
+
+        // デバイス一覧を取得
+        send({ type: 'get_devices' });
+
+        // 保存済みデバイスがあればバックエンドに送信
+        const savedMic = loadSetting<number | null>(STORAGE_KEYS.MIC, null);
+        const savedSpeaker = loadSetting<number | null>(STORAGE_KEYS.SPEAKER, null);
+        if (savedMic !== null && savedSpeaker !== null) {
+            send({ type: 'select_devices', mic_id: savedMic, speaker_id: savedSpeaker });
+        }
+
+        // 保存済みプロバイダーがあれば送信
+        const savedProvider = loadSetting(STORAGE_KEYS.PROVIDER, '');
+        if (savedProvider) {
+            send({ type: 'settings', llm_provider: savedProvider as 'gemini' | 'openai' | 'claude' });
+        }
+    }, [connected, send]);
+
     // --- イベントハンドラ ---
 
     const handleToggleRecording = () => {
@@ -130,10 +177,13 @@ export function App() {
     const handleSelectDevices = (micId: number, speakerId: number) => {
         setSelectedMic(micId);
         setSelectedSpeaker(speakerId);
+        saveSetting(STORAGE_KEYS.MIC, micId);
+        saveSetting(STORAGE_KEYS.SPEAKER, speakerId);
         send({ type: 'select_devices', mic_id: micId, speaker_id: speakerId });
     };
 
     const handleChangeProvider = (provider: string) => {
+        saveSetting(STORAGE_KEYS.PROVIDER, provider);
         send({ type: 'settings', llm_provider: provider as 'gemini' | 'openai' | 'claude' });
     };
 
