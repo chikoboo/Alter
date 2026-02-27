@@ -62,6 +62,12 @@ class AudioCapture:
             self._mic_thread.join(timeout=3.0)
         if self._speaker_thread:
             self._speaker_thread.join(timeout=3.0)
+        if hasattr(self, '_pyaudio') and self._pyaudio:
+            try:
+                self._pyaudio.terminate()
+            except Exception:
+                pass
+            self._pyaudio = None
 
     def get_chunk(self, timeout: float = 1.0) -> Optional[AudioChunk]:
         """キューから次の音声チャンクを取得する"""
@@ -74,103 +80,80 @@ class AudioCapture:
 
     def _start_windows_capture(self):
         """Windows WASAPI経由のキャプチャスレッドを起動"""
+        try:
+            import pyaudiowpatch as pyaudio  # type: ignore
+        except ImportError:
+            print("[ERROR] pyaudiowpatch が見つかりません")
+            return
+
+        # PyAudioを1回だけ初期化（スレッドセーフでないため）
+        print("[DEBUG] PyAudio初期化中...")
+        self._pyaudio = pyaudio.PyAudio()
+        print("[DEBUG] PyAudio初期化完了")
+
         if self.mic_device_index is not None:
-            self._mic_thread = threading.Thread(
-                target=self._capture_mic_windows,
-                daemon=True,
-                name="mic-capture",
-            )
-            self._mic_thread.start()
+            try:
+                print(f"[DEBUG] マイクデバイス情報取得: index={self.mic_device_index}")
+                dev_info = self._pyaudio.get_device_info_by_index(self.mic_device_index)
+                native_rate = int(dev_info.get("defaultSampleRate", self.sample_rate))
+                channels = min(dev_info.get("maxInputChannels", 1), 2)
+                frames_per_buffer = int(native_rate * 0.1)
+                print(f"[DEBUG] マイク: rate={native_rate}, ch={channels}, buf={frames_per_buffer}")
+
+                print("[DEBUG] マイクストリーム開始...")
+                mic_stream = self._pyaudio.open(
+                    format=pyaudio.paFloat32,
+                    channels=channels,
+                    rate=native_rate,
+                    input=True,
+                    input_device_index=self.mic_device_index,
+                    frames_per_buffer=frames_per_buffer,
+                )
+                print("[DEBUG] マイクストリーム開始成功")
+
+                self._mic_thread = threading.Thread(
+                    target=self._read_stream,
+                    args=(mic_stream, "you", native_rate, channels),
+                    daemon=True,
+                    name="mic-capture",
+                )
+                self._mic_thread.start()
+            except Exception as e:
+                print(f"[ERROR] マイク初期化エラー: {e}")
+                import traceback
+                traceback.print_exc()
 
         if self.speaker_device_index is not None:
-            self._speaker_thread = threading.Thread(
-                target=self._capture_speaker_windows,
-                daemon=True,
-                name="speaker-capture",
-            )
-            self._speaker_thread.start()
+            try:
+                print(f"[DEBUG] スピーカーデバイス情報取得: index={self.speaker_device_index}")
+                dev_info = self._pyaudio.get_device_info_by_index(self.speaker_device_index)
+                native_rate = int(dev_info.get("defaultSampleRate", self.sample_rate))
+                channels = min(dev_info.get("maxInputChannels", 2), 2)
+                frames_per_buffer = int(native_rate * 0.1)
+                print(f"[DEBUG] スピーカー: rate={native_rate}, ch={channels}, buf={frames_per_buffer}")
 
-    def _capture_mic_windows(self):
-        """マイク入力スレッド（Windows）"""
-        print("[DEBUG] マイクキャプチャスレッド開始")
-        try:
-            import pyaudiowpatch as pyaudio  # type: ignore
-        except ImportError:
-            print("[ERROR] pyaudiowpatch が見つかりません")
-            return
+                print("[DEBUG] スピーカーストリーム開始...")
+                speaker_stream = self._pyaudio.open(
+                    format=pyaudio.paFloat32,
+                    channels=channels,
+                    rate=native_rate,
+                    input=True,
+                    input_device_index=self.speaker_device_index,
+                    frames_per_buffer=frames_per_buffer,
+                )
+                print("[DEBUG] スピーカーストリーム開始成功")
 
-        p = pyaudio.PyAudio()
-        try:
-            print(f"[DEBUG] マイクデバイス情報取得: index={self.mic_device_index}")
-            dev_info = p.get_device_info_by_index(self.mic_device_index)
-            native_rate = int(dev_info.get("defaultSampleRate", self.sample_rate))
-            channels = min(dev_info.get("maxInputChannels", 1), 2)
-            frames_per_buffer = int(native_rate * 0.1)  # 100ms バッファ
-            print(f"[DEBUG] マイク: rate={native_rate}, ch={channels}, buf={frames_per_buffer}")
-
-            print("[DEBUG] マイクストリーム開始...")
-            import sys
-            sys.stdout.flush()
-            stream = p.open(
-                format=pyaudio.paFloat32,
-                channels=channels,
-                rate=native_rate,
-                input=True,
-                input_device_index=self.mic_device_index,
-                frames_per_buffer=frames_per_buffer,
-            )
-            print("[DEBUG] マイクストリーム開始成功")
-
-            self._read_stream(stream, "you", native_rate, channels)
-            stream.stop_stream()
-            stream.close()
-        except Exception as e:
-            print(f"[ERROR] マイクキャプチャエラー: {e}")
-            import traceback
-            traceback.print_exc()
-        finally:
-            p.terminate()
-
-    def _capture_speaker_windows(self):
-        """スピーカー出力ループバックスレッド（Windows）"""
-        print("[DEBUG] スピーカーキャプチャスレッド開始")
-        try:
-            import pyaudiowpatch as pyaudio  # type: ignore
-        except ImportError:
-            print("[ERROR] pyaudiowpatch が見つかりません")
-            return
-
-        p = pyaudio.PyAudio()
-        try:
-            print(f"[DEBUG] スピーカーデバイス情報取得: index={self.speaker_device_index}")
-            dev_info = p.get_device_info_by_index(self.speaker_device_index)
-            native_rate = int(dev_info.get("defaultSampleRate", self.sample_rate))
-            channels = min(dev_info.get("maxInputChannels", 2), 2)
-            frames_per_buffer = int(native_rate * 0.1)
-            print(f"[DEBUG] スピーカー: rate={native_rate}, ch={channels}, buf={frames_per_buffer}")
-
-            print("[DEBUG] スピーカーストリーム開始...")
-            import sys
-            sys.stdout.flush()
-            stream = p.open(
-                format=pyaudio.paFloat32,
-                channels=channels,
-                rate=native_rate,
-                input=True,
-                input_device_index=self.speaker_device_index,
-                frames_per_buffer=frames_per_buffer,
-            )
-            print("[DEBUG] スピーカーストリーム開始成功")
-
-            self._read_stream(stream, "target", native_rate, channels)
-            stream.stop_stream()
-            stream.close()
-        except Exception as e:
-            print(f"[ERROR] スピーカーキャプチャエラー: {e}")
-            import traceback
-            traceback.print_exc()
-        finally:
-            p.terminate()
+                self._speaker_thread = threading.Thread(
+                    target=self._read_stream,
+                    args=(speaker_stream, "target", native_rate, channels),
+                    daemon=True,
+                    name="speaker-capture",
+                )
+                self._speaker_thread.start()
+            except Exception as e:
+                print(f"[ERROR] スピーカー初期化エラー: {e}")
+                import traceback
+                traceback.print_exc()
 
     def _read_stream(self, stream, source: str, native_rate: int, channels: int):
         """ストリームから音声を読み取り、リサンプル後にキューに投入"""
