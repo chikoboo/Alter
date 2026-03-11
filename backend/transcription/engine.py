@@ -61,6 +61,12 @@ class TranscriptionEngine:
         try:
             from moonshine_voice import Transcriber, TranscriptEventListener
 
+            # ModelArch enum をインポート
+            try:
+                from moonshine_voice import ModelArch
+            except ImportError:
+                from moonshine_voice.transcriber import ModelArch
+
             # モデルが指定されていなければ自動ダウンロード
             if not self._model_path:
                 print(f"[INFO] モデルをダウンロード中 (language={self.language})...")
@@ -73,6 +79,9 @@ class TranscriptionEngine:
                     print("[ERROR] モデルのダウンロードに失敗しました")
                     return
 
+            # int → ModelArch enum に変換
+            model_arch_enum = ModelArch(self._model_arch)
+
             # 日本語等の非ラテン言語向けオプション
             options = {
                 "vad_threshold": str(self._vad_threshold),
@@ -84,7 +93,7 @@ class TranscriptionEngine:
 
             self._transcriber = Transcriber(
                 model_path=self._model_path,
-                model_arch=self._model_arch,
+                model_arch=model_arch_enum,
                 options=options,
             )
 
