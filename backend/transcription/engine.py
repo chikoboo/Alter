@@ -59,15 +59,19 @@ class TranscriptionEngine:
 
         print(f"[INFO] Moonshine Voice モデルを読み込み中... (language={self.language})")
         try:
-            from moonshine_voice import Transcriber, TranscriptEventListener, download_model
+            from moonshine_voice import Transcriber, TranscriptEventListener
 
             # モデルが指定されていなければ自動ダウンロード
             if not self._model_path:
                 print(f"[INFO] モデルをダウンロード中 (language={self.language})...")
-                result = download_model(language=self.language)
-                self._model_path = result.model_path
-                self._model_arch = result.model_arch
-                print(f"[INFO] モデルダウンロード完了: {self._model_path} (arch={self._model_arch})")
+                result = self._download_model()
+                if result:
+                    self._model_path = result.model_path
+                    self._model_arch = result.model_arch
+                    print(f"[INFO] モデルダウンロード完了: {self._model_path} (arch={self._model_arch})")
+                else:
+                    print("[ERROR] モデルのダウンロードに失敗しました")
+                    return
 
             # 日本語等の非ラテン言語向けオプション
             options = {
@@ -90,6 +94,49 @@ class TranscriptionEngine:
             import traceback
             traceback.print_exc()
             self._transcriber = None
+
+    def _download_model(self):
+        """モデルをダウンロードする。複数のインポートパスを試みる。"""
+        # 方法1: moonshine_voice.download モジュールから
+        try:
+            from moonshine_voice.download import download_model
+            return download_model(language=self.language)
+        except ImportError:
+            pass
+        except TypeError:
+            # 引数形式が違う場合は別の呼び方を試す
+            try:
+                from moonshine_voice.download import download_model
+                return download_model(self.language)
+            except Exception:
+                pass
+
+        # 方法2: moonshine_voice トップレベルから
+        try:
+            from moonshine_voice import download_model
+            return download_model(language=self.language)
+        except ImportError:
+            pass
+
+        # 方法3: moonshine_voice.download の download_file
+        try:
+            from moonshine_voice.download import download_file
+            return download_file(language=self.language)
+        except ImportError:
+            pass
+
+        # 方法4: moonshine_voice.hf モジュール（旧API）
+        try:
+            from moonshine_voice.hf import download_model
+            return download_model(language=self.language)
+        except ImportError:
+            pass
+
+        print("[ERROR] moonshine_voice のダウンロード関数が見つかりません")
+        print("[INFO] 手動でモデルをダウンロードしてください:")
+        print(f"  python -m moonshine_voice.download --language {self.language}")
+        return None
+
 
     @property
     def model_loaded(self) -> bool:
