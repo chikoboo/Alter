@@ -29,19 +29,22 @@ class AlterBackend:
         self.session_manager = SessionManager(config.data_dir)
         self.thinking_engine = ThinkingEngine(config)
         self.transcription_engine = TranscriptionEngine(
-            model_name=config.whisper_model,
-            device=config.whisper_device,
-            compute_type=config.whisper_compute_type,
-            language=config.language,
+            language=config.moonshine_language,
+            model_path=config.moonshine_model_path,
+            model_arch=config.moonshine_model_arch,
             vad_threshold=config.vad_threshold,
             sample_rate=config.sample_rate,
         )
         self.audio_capture: Optional[AudioCapture] = None
         self._ws: Optional[WebSocket] = None
         self._transcription_task: Optional[asyncio.Task] = None
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+
+        # 文字起こし結果のコールバックを設定
+        self.transcription_engine.set_callback(self._on_transcript_segment)
 
         # 起動時にモデルを事前読み込み
-        print("[INFO] モデルを事前読み込み中...")
+        print("[INFO] Moonshine Voice モデルを事前読み込み中...")
         self.transcription_engine.load_model()
         print("[INFO] モデル事前読み込み完了")
 
@@ -110,10 +113,17 @@ class AlterBackend:
                 if self.session_manager.current_session is None:
                     self.session_manager.create_session()
 
+                # イベントループを保存（コールバックから使用）
+                self._event_loop = asyncio.get_event_loop()
+
+                # Moonshine文字起こしセッション開始
+                print("[DEBUG] Moonshine文字起こしセッション開始中...")
+                self.transcription_engine.start()
+
                 print("[DEBUG] 音声キャプチャ開始中...")
                 self.audio_capture.start()
                 print("[DEBUG] 音声キャプチャ開始成功")
-                self._transcription_task = asyncio.create_task(self._transcription_loop())
+                self._transcription_task = asyncio.create_task(self._audio_feed_loop())
 
                 await self.send_message({
                     "type": "status",
@@ -127,6 +137,8 @@ class AlterBackend:
                 await self.send_message({"type": "error", "message": f"録音開始に失敗: {e}"})
 
         elif action == "stop":
+            # Moonshine文字起こしセッション停止
+            self.transcription_engine.stop()
             if self.audio_capture:
                 self.audio_capture.stop()
             if self._transcription_task:
@@ -218,16 +230,20 @@ class AlterBackend:
         await self.send_message({
             "type": "status",
             "recording": self.audio_capture is not None and self.audio_capture._running,
-            "model_loaded": self.transcription_engine._model is not None,
+            "model_loaded": self.transcription_engine.model_loaded,
             "llm_provider": self.config.llm_provider,
             "available_providers": self.thinking_engine.get_available_providers(),
             "session": self._session_info(),
         })
 
-    # --- 文字起こしループ ---
+    # --- 音声フィードループ ---
 
-    async def _transcription_loop(self):
-        """音声チャンクを取得して文字起こしするループ"""
+    async def _audio_feed_loop(self):
+        """音声チャンクを取得してMoonshineエンジンに送るループ
+
+        文字起こし結果はエンジンのイベントリスナー経由で
+        _on_transcript_segment コールバックに届く。
+        """
         loop = asyncio.get_event_loop()
 
         while True:
@@ -237,44 +253,50 @@ class AlterBackend:
                 if chunk is None:
                     continue
 
-                # 文字起こし（CPU/GPU処理なのでスレッドプールで実行）
-                segment = await loop.run_in_executor(
-                    None, self.transcription_engine.transcribe_chunk, chunk
+                # 音声をMoonshineエンジンにフィード
+                await loop.run_in_executor(
+                    None, self.transcription_engine.feed_audio, chunk
                 )
-                if segment is None:
-                    continue
-
-                # セッションに記録
-                self.session_manager.add_transcript(
-                    speaker=segment.speaker,
-                    text=segment.text,
-                    timestamp=segment.timestamp,
-                )
-
-                # ユーザー発話を学習ストアに記録
-                if segment.speaker == "you":
-                    session_id = ""
-                    if self.session_manager.current_session:
-                        session_id = self.session_manager.current_session.id
-                    self.thinking_engine.learning_store.record(UserUtterance(
-                        text=segment.text,
-                        timestamp=segment.timestamp,
-                        session_id=session_id,
-                    ))
-
-                # フロントエンドに送信
-                await self.send_message({
-                    "type": "transcript",
-                    "speaker": segment.speaker,
-                    "text": segment.text,
-                    "timestamp": segment.timestamp,
-                })
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"[ERROR] 文字起こしループエラー: {e}")
+                print(f"[ERROR] 音声フィードループエラー: {e}")
                 await asyncio.sleep(0.5)
+
+    def _on_transcript_segment(self, segment: TranscriptSegment):
+        """Moonshineイベントリスナーからのコールバック（別スレッドから呼ばれる）"""
+        if self._event_loop is None:
+            return
+
+        # セッションに記録
+        self.session_manager.add_transcript(
+            speaker=segment.speaker,
+            text=segment.text,
+            timestamp=segment.timestamp,
+        )
+
+        # ユーザー発話を学習ストアに記録
+        if segment.speaker == "you":
+            session_id = ""
+            if self.session_manager.current_session:
+                session_id = self.session_manager.current_session.id
+            self.thinking_engine.learning_store.record(UserUtterance(
+                text=segment.text,
+                timestamp=segment.timestamp,
+                session_id=session_id,
+            ))
+
+        # フロントエンドに送信（別スレッドからasyncioループに投げる）
+        asyncio.run_coroutine_threadsafe(
+            self.send_message({
+                "type": "transcript",
+                "speaker": segment.speaker,
+                "text": segment.text,
+                "timestamp": segment.timestamp,
+            }),
+            self._event_loop,
+        )
 
     def _session_info(self) -> dict:
         s = self.session_manager.current_session

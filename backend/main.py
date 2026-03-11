@@ -94,21 +94,18 @@ def main():
     parser = argparse.ArgumentParser(description="Alter - リアルタイム文字起こし + AI回答")
     parser.add_argument("--dev", action="store_true", help="開発モード（pywebviewなし、ブラウザで接続）")
     parser.add_argument("--port", type=int, default=8765, help="サーバーポート")
-    parser.add_argument("--model", default="large-v3", help="Whisperモデル名")
-    parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"], help="推論デバイス")
+    parser.add_argument("--language", default="ja", help="Moonshine文字起こし言語")
     args = parser.parse_args()
 
     config = AppConfig(
         port=args.port,
-        whisper_model=args.model,
-        whisper_device=args.device,
+        moonshine_language=args.language,
     )
 
     print("=" * 50)
     print("  Alter - リアルタイム文字起こし + AI回答")
     print("=" * 50)
-    print(f"  Whisperモデル: {config.whisper_model}")
-    print(f"  推論デバイス:  {config.whisper_device}")
+    print(f"  Moonshine Voice: language={config.moonshine_language}")
     print(f"  LLMプロバイダー: {config.llm_provider}")
     print(f"  サーバー:      http://{config.host}:{config.port}")
     print("=" * 50)

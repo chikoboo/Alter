@@ -1,7 +1,8 @@
 """Alter - 文字起こしエンジン
 
-faster-whisperを使用したリアルタイム音声文字起こし。
-音声チャンクを受け取り、話者タグ付きのテキストを生成する。
+moonshine-voiceを使用したリアルタイム音声文字起こし。
+音声チャンクを受け取り、イベントベースでテキストを生成する。
+マイクとスピーカーの2ソースを個別のStreamで管理する。
 """
 
 import threading
@@ -12,7 +13,6 @@ from typing import Callable, Optional
 import numpy as np
 
 from audio.capture import AudioChunk
-from transcription.vad import VoiceActivityDetector
 
 
 @dataclass
@@ -25,165 +25,190 @@ class TranscriptSegment:
 
 
 class TranscriptionEngine:
-    """faster-whisperベースの文字起こしエンジン"""
+    """Moonshine Voiceベースの文字起こしエンジン
+
+    1つのTranscriberに対して、マイク用・スピーカー用の2つのStreamを作成し、
+    それぞれの音声を独立して文字起こしする。
+    結果はイベントリスナー経由でコールバックされる。
+    """
 
     def __init__(
         self,
-        model_name: str = "large-v3",
-        device: str = "cuda",
-        compute_type: str = "float16",
         language: str = "ja",
+        model_path: str = "",
+        model_arch: int = 0,
         vad_threshold: float = 0.5,
         sample_rate: int = 16000,
     ):
-        self.model_name = model_name
-        self.device = device
-        self.compute_type = compute_type
         self.language = language
+        self._model_path = model_path
+        self._model_arch = model_arch
+        self._vad_threshold = vad_threshold
         self.sample_rate = sample_rate
-        self._model = None
-        self._vad = VoiceActivityDetector(threshold=vad_threshold, sample_rate=sample_rate)
+        self._transcriber = None
+        self._mic_stream = None
+        self._speaker_stream = None
         self._on_transcript: Optional[Callable[[TranscriptSegment], None]] = None
         self._running = False
         self._lock = threading.Lock()
 
-        # CUDA利用可能チェック（警告のみ）
-        if self.device == "cuda":
-            self._check_cuda_available()
-
-    @staticmethod
-    def _check_cuda_available() -> bool:
-        """CUDAが実際に利用可能かチェック"""
-        # 1. ctranslate2でCUDAデバイスを確認
-        try:
-            import ctranslate2
-            if hasattr(ctranslate2, 'get_cuda_device_count'):
-                count = ctranslate2.get_cuda_device_count()
-                if count == 0:
-                    print("[INFO] CUDAデバイスが見つかりません")
-                    return False
-                print(f"[INFO] CUDAデバイス検出: {count}台")
-            else:
-                # get_cuda_device_countがない古いバージョン
-                pass
-        except Exception as e:
-            print(f"[INFO] ctranslate2 CUDAチェック失敗: {e}")
-            return False
-
-        # 2. cuBLAS DLLの存在確認（Windows）
-        import sys
-        if sys.platform == "win32":
-            try:
-                import ctypes
-                ctypes.CDLL("cublas64_12.dll")
-                print("[INFO] cublas64_12.dll 検出済み")
-            except OSError:
-                print("[INFO] cublas64_12.dll が見つかりません")
-                return False
-
-        return True
-
     def load_model(self):
-        """Whisperモデルを読み込む（初回のみ）"""
-        if self._model is not None:
+        """Moonshineモデルを読み込む（初回のみ）"""
+        if self._transcriber is not None:
             return
 
-        print(f"[INFO] faster-whisper モデル '{self.model_name}' を読み込み中... (device={self.device}, compute={self.compute_type})")
+        print(f"[INFO] Moonshine Voice モデルを読み込み中... (language={self.language})")
         try:
-            from faster_whisper import WhisperModel
-            self._model = WhisperModel(
-                self.model_name,
-                device=self.device,
-                compute_type=self.compute_type,
-            )
-            print(f"[INFO] モデル読み込み完了 (device={self.device})")
-        except Exception as e:
-            print(f"[ERROR] モデル読み込みに失敗: {e}")
-            # CPUフォールバック
-            if self.device == "cuda":
-                self._fallback_to_cpu()
+            from moonshine_voice import Transcriber, TranscriptEventListener, download_model
 
-    def _fallback_to_cpu(self):
-        """CUDA失敗時にCPUモデルに切り替える"""
-        print("[INFO] CPUにフォールバックします...")
-        self.device = "cpu"
-        self.compute_type = "int8"
-        self._model = None
-        try:
-            from faster_whisper import WhisperModel
-            self._model = WhisperModel(
-                self.model_name,
-                device="cpu",
-                compute_type="int8",
+            # モデルが指定されていなければ自動ダウンロード
+            if not self._model_path:
+                print(f"[INFO] モデルをダウンロード中 (language={self.language})...")
+                result = download_model(language=self.language)
+                self._model_path = result.model_path
+                self._model_arch = result.model_arch
+                print(f"[INFO] モデルダウンロード完了: {self._model_path} (arch={self._model_arch})")
+
+            # 日本語等の非ラテン言語向けオプション
+            options = {
+                "vad_threshold": str(self._vad_threshold),
+                "return_audio_data": "false",  # メモリ節約
+            }
+            # 非ラテン言語ではトークン数上限を緩和
+            if self.language not in ("en", "es"):
+                options["max_tokens_per_second"] = "13.0"
+
+            self._transcriber = Transcriber(
+                model_path=self._model_path,
+                model_arch=self._model_arch,
+                options=options,
             )
-            print("[INFO] CPUモデル読み込み完了")
+
+            print(f"[INFO] Moonshine Voice モデル読み込み完了")
         except Exception as e:
-            print(f"[ERROR] CPUフォールバックも失敗: {e}")
-            self._model = None
+            print(f"[ERROR] Moonshine Voice モデル読み込みに失敗: {e}")
+            import traceback
+            traceback.print_exc()
+            self._transcriber = None
+
+    @property
+    def model_loaded(self) -> bool:
+        """モデルが読み込まれているかどうか"""
+        return self._transcriber is not None
 
     def set_callback(self, callback: Callable[[TranscriptSegment], None]):
         """文字起こし結果のコールバックを設定する"""
         self._on_transcript = callback
 
-    def transcribe_chunk(self, chunk: AudioChunk) -> Optional[TranscriptSegment]:
-        """音声チャンクを文字起こしする
+    def start(self):
+        """文字起こしセッションを開始する
+
+        マイク用・スピーカー用の2つのStreamを作成しリスナーを登録する。
+        """
+        self.load_model()
+        if self._transcriber is None:
+            print("[ERROR] モデルが読み込まれていないため開始できません")
+            return
+
+        try:
+            from moonshine_voice import TranscriptEventListener
+
+            # マイク用Stream
+            self._mic_stream = self._transcriber.create_stream(flags=0)
+            mic_listener = _StreamListener(self, "you")
+            self._mic_stream.add_listener(mic_listener)
+            self._mic_stream.start()
+
+            # スピーカー用Stream
+            self._speaker_stream = self._transcriber.create_stream(flags=0)
+            speaker_listener = _StreamListener(self, "target")
+            self._speaker_stream.add_listener(speaker_listener)
+            self._speaker_stream.start()
+
+            self._running = True
+            print("[INFO] Moonshine Voice 文字起こしセッション開始")
+        except Exception as e:
+            print(f"[ERROR] 文字起こしセッション開始エラー: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def stop(self):
+        """文字起こしセッションを停止する"""
+        self._running = False
+        try:
+            if self._mic_stream:
+                self._mic_stream.stop()
+                self._mic_stream = None
+            if self._speaker_stream:
+                self._speaker_stream.stop()
+                self._speaker_stream = None
+        except Exception as e:
+            print(f"[WARNING] セッション停止エラー: {e}")
+
+    def feed_audio(self, chunk: AudioChunk):
+        """音声チャンクを対応するStreamに送る
 
         Args:
             chunk: 音声チャンク（source, data, timestamp）
-
-        Returns:
-            文字起こし結果。無音の場合はNone。
         """
-        # VADで発話区間をチェック
-        if not self._vad.contains_speech(chunk.data):
-            return None
-
-        # モデルが読み込まれていなければ読み込む
-        self.load_model()
-        if self._model is None:
-            return None
+        if not self._running:
+            return
 
         try:
-            with self._lock:
-                segments, info = self._model.transcribe(
-                    chunk.data,
-                    language=self.language,
-                    beam_size=3,  # スピード優先でやや小さめ
-                    vad_filter=False,  # 自前VAD使用のため無効
-                    without_timestamps=True,
-                )
+            stream = self._mic_stream if chunk.source == "you" else self._speaker_stream
+            if stream is None:
+                return
 
-                # セグメントを結合
-                texts = []
-                for seg in segments:
-                    text = seg.text.strip()
-                    if text:
-                        texts.append(text)
-
-                if not texts:
-                    return None
-
-                full_text = " ".join(texts)
-
-                result = TranscriptSegment(
-                    speaker=chunk.source,
-                    text=full_text,
-                    timestamp=chunk.timestamp,
-                    duration=len(chunk.data) / self.sample_rate,
-                )
-
-                # コールバックを呼ぶ
-                if self._on_transcript:
-                    self._on_transcript(result)
-
-                return result
-
+            # numpy配列をリストとして渡す
+            stream.add_audio(chunk.data.tolist(), self.sample_rate)
         except Exception as e:
-            error_msg = str(e)
-            print(f"[ERROR] 文字起こしエラー: {error_msg}")
+            print(f"[WARNING] 音声フィードエラー ({chunk.source}): {e}")
 
-            # CUDA/cuBLAS系エラーの場合、CPUにフォールバック
-            if "cublas" in error_msg.lower() or "cuda" in error_msg.lower():
-                self._fallback_to_cpu()
+    def _handle_line_completed(self, speaker: str, text: str, start_time: float, duration: float):
+        """Streamリスナーから完了行を受け取るコールバック"""
+        if not text or not text.strip():
+            return
 
-            return None
+        segment = TranscriptSegment(
+            speaker=speaker,
+            text=text.strip(),
+            timestamp=time.time(),
+            duration=duration,
+        )
+
+        if self._on_transcript:
+            self._on_transcript(segment)
+
+
+class _StreamListener:
+    """Moonshineの文字起こしイベントリスナー
+
+    on_line_completed が呼ばれたときに TranscriptionEngine のコールバックを呼ぶ。
+    on_line_text_changed でリアルタイムの中間結果も処理可能（将来拡張用）。
+    """
+
+    def __init__(self, engine: TranscriptionEngine, speaker: str):
+        self._engine = engine
+        self._speaker = speaker
+
+    def on_line_started(self, event):
+        """行の開始（ログ用）"""
+        pass
+
+    def on_line_text_changed(self, event):
+        """テキスト更新（将来的にリアルタイムプレビューに使用可能）"""
+        pass
+
+    def on_line_completed(self, event):
+        """行の完了 — 確定テキストをエンジンに通知"""
+        line = event.line
+        self._engine._handle_line_completed(
+            speaker=self._speaker,
+            text=line.text,
+            start_time=line.start_time,
+            duration=line.duration,
+        )
+
+    def on_line_updated(self, event):
+        """行の更新（テキスト以外の変更含む）"""
+        pass

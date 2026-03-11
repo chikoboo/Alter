@@ -15,11 +15,10 @@ class AppConfig:
     channels: int = 1
     chunk_duration_sec: float = 2.0  # 音声チャンクの長さ（秒）
 
-    # --- 文字起こし ---
-    whisper_model: str = "large-v3"
-    whisper_device: str = "cuda"
-    whisper_compute_type: str = ""  # auto: cuda→float16, cpu→int8
-    language: str = "ja"
+    # --- 文字起こし（Moonshine Voice）---
+    moonshine_language: str = "ja"  # モデルダウンロード用言語
+    moonshine_model_path: str = ""  # 空の場合は自動ダウンロード
+    moonshine_model_arch: int = 0   # 0の場合は自動選択
     vad_threshold: float = 0.5
 
     # --- LLM ---
@@ -48,9 +47,6 @@ class AppConfig:
         self.openai_api_key = self.openai_api_key or os.environ.get("OPENAI_API_KEY", "")
         self.anthropic_api_key = self.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY", "")
 
-        # compute_type を自動設定
-        if not self.whisper_compute_type:
-            self.whisper_compute_type = "float16" if self.whisper_device == "cuda" else "int8"
 
         # dataディレクトリを作成
         self.data_dir.mkdir(parents=True, exist_ok=True)
