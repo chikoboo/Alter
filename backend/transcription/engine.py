@@ -96,46 +96,57 @@ class TranscriptionEngine:
             self._transcriber = None
 
     def _download_model(self):
-        """モデルをダウンロードする。複数のインポートパスを試みる。"""
-        # 方法1: moonshine_voice.download モジュールから
-        try:
-            from moonshine_voice.download import download_model
-            return download_model(language=self.language)
-        except ImportError:
-            pass
-        except TypeError:
-            # 引数形式が違う場合は別の呼び方を試す
-            try:
-                from moonshine_voice.download import download_model
-                return download_model(self.language)
-            except Exception:
-                pass
+        """CLIツールでモデルをダウンロードし、パスとアーキテクチャを返す。"""
+        import subprocess
+        import sys
 
-        # 方法2: moonshine_voice トップレベルから
-        try:
-            from moonshine_voice import download_model
-            return download_model(language=self.language)
-        except ImportError:
-            pass
+        class _DownloadResult:
+            def __init__(self, model_path, model_arch):
+                self.model_path = model_path
+                self.model_arch = model_arch
 
-        # 方法3: moonshine_voice.download の download_file
-        try:
-            from moonshine_voice.download import download_file
-            return download_file(language=self.language)
-        except ImportError:
-            pass
+        print(f"[INFO] python -m moonshine_voice.download --language {self.language} を実行中...")
 
-        # 方法4: moonshine_voice.hf モジュール（旧API）
         try:
-            from moonshine_voice.hf import download_model
-            return download_model(language=self.language)
-        except ImportError:
-            pass
+            result = subprocess.run(
+                [sys.executable, "-m", "moonshine_voice.download", "--language", self.language],
+                capture_output=True,
+                text=True,
+                timeout=300,  # ダウンロードに最大5分
+            )
 
-        print("[ERROR] moonshine_voice のダウンロード関数が見つかりません")
-        print("[INFO] 手動でモデルをダウンロードしてください:")
-        print(f"  python -m moonshine_voice.download --language {self.language}")
-        return None
+            output = result.stdout + result.stderr
+            print(output)
+
+            # CLIの出力からパスとアーキテクチャを抽出
+            # 例: "Downloaded model path: /path/to/model"
+            # 例: "Model arch: 1"
+            model_path = ""
+            model_arch = 0
+
+            for line in output.splitlines():
+                line = line.strip()
+                if "Downloaded model path:" in line:
+                    model_path = line.split("Downloaded model path:", 1)[1].strip()
+                elif "Model arch:" in line:
+                    try:
+                        model_arch = int(line.split("Model arch:", 1)[1].strip())
+                    except ValueError:
+                        pass
+
+            if model_path:
+                return _DownloadResult(model_path, model_arch)
+            else:
+                print(f"[ERROR] モデルパスを取得できませんでした。CLIの出力:\n{output}")
+                return None
+
+        except subprocess.TimeoutExpired:
+            print("[ERROR] ダウンロードがタイムアウトしました")
+            return None
+        except Exception as e:
+            print(f"[ERROR] ダウンロードコマンド実行エラー: {e}")
+            return None
+
 
 
     @property
