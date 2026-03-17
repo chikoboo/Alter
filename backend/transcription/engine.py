@@ -247,10 +247,18 @@ class TranscriptionEngine:
             self._on_transcript(segment)
 
 
-class _StreamListener:
+# TranscriptEventListenerの遅延インポート（moonshine_voiceがインストールされていない環境用）
+try:
+    from moonshine_voice import TranscriptEventListener as _BaseListener
+except ImportError:
+    _BaseListener = object
+
+
+class _StreamListener(_BaseListener):
     """Moonshineの文字起こしイベントリスナー
 
-    on_line_completed が呼ばれたときに TranscriptionEngine のコールバックを呼ぶ。
+    TranscriptEventListenerを継承し、on_line_completed が呼ばれたときに
+    TranscriptionEngine のコールバックを呼ぶ。
     on_line_text_changed でリアルタイムの中間結果も処理可能（将来拡張用）。
     """
 
@@ -279,3 +287,7 @@ class _StreamListener:
     def on_line_updated(self, event):
         """行の更新（テキスト以外の変更含む）"""
         pass
+
+    def on_error(self, event):
+        """エラーイベントの処理"""
+        print(f"[WARNING] Moonshine文字起こしエラー ({self._speaker}): {event.error}")
