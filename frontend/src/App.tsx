@@ -50,6 +50,10 @@ export function App() {
     const [aiLoading, setAiLoading] = useState(false);
     const [selectedText, setSelectedText] = useState('');
 
+    // バブル選択
+    const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+    const lastSelectedRef = useRef<number | null>(null);
+
     // デバイス
     const [microphones, setMicrophones] = useState<Device[]>([]);
     const [speakers, setSpeakers] = useState<Device[]>([]);
@@ -174,6 +178,54 @@ export function App() {
         send({ type: 'ai_request', selected_text: text });
     };
 
+    // バブル選択トグル（Shift+クリック = 範囲選択）
+    const handleToggleSelect = useCallback((index: number, shiftKey: boolean) => {
+        setSelectedIndices((prev) => {
+            const next = new Set(prev);
+            if (shiftKey && lastSelectedRef.current !== null) {
+                const from = Math.min(lastSelectedRef.current, index);
+                const to = Math.max(lastSelectedRef.current, index);
+                for (let i = from; i <= to; i++) {
+                    next.add(i);
+                }
+            } else {
+                if (next.has(index)) {
+                    next.delete(index);
+                } else {
+                    next.add(index);
+                }
+            }
+            return next;
+        });
+        lastSelectedRef.current = index;
+    }, []);
+
+    const handleClearSelection = useCallback(() => {
+        setSelectedIndices(new Set());
+        lastSelectedRef.current = null;
+    }, []);
+
+    const handleAskAiFromSelection = useCallback(() => {
+        if (selectedIndices.size === 0) return;
+        // 選択バブルのテキストを時系列順に結合
+        const sortedIndices = Array.from(selectedIndices).sort((a, b) => a - b);
+        const combined = sortedIndices
+            .map((i) => {
+                const e = transcripts[i];
+                if (!e) return '';
+                const label = e.speaker === 'you' ? 'You' : 'Target';
+                return `[${label}] ${e.text}`;
+            })
+            .filter(Boolean)
+            .join('\n');
+
+        setSelectedText(combined);
+        setAiAnswer(null);
+        setAiLoading(true);
+        send({ type: 'ai_request', selected_text: combined });
+        handleClearSelection();
+    }, [selectedIndices, transcripts, send, handleClearSelection]);
+
     const handleSelectDevices = (micId: number, speakerId: number) => {
         setSelectedMic(micId);
         setSelectedSpeaker(speakerId);
@@ -243,6 +295,10 @@ export function App() {
 
             <TranscriptView
                 entries={transcripts}
+                selectedIndices={selectedIndices}
+                onToggleSelect={handleToggleSelect}
+                onClearSelection={handleClearSelection}
+                onAskAi={handleAskAiFromSelection}
                 onTextSelect={handleTextSelect}
             />
 

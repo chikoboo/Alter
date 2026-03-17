@@ -312,6 +312,57 @@ body {
   margin-top: 4px;
 }
 
+/* === バブル選択状態 === */
+
+.transcript-bubble--selected {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: -2px;
+  background: rgba(88, 166, 255, 0.15) !important;
+  cursor: pointer;
+}
+
+.transcript-bubble__check {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-blue);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* === フローティング選択バー === */
+
+.selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--accent-blue);
+  animation: slideUp 0.25s ease;
+}
+
+.selection-bar__count {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-blue);
+}
+
+.selection-bar__actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* === AIパネル === */
 
 .ai-panel {
